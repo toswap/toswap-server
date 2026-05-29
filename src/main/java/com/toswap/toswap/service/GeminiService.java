@@ -11,6 +11,8 @@ import reactor.core.publisher.Mono;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import com.toswap.toswap.dto.response.ImprovementItem;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -177,25 +179,30 @@ public class GeminiService {
         sb.append(ctx.questionContent()).append("\n\n");
 
         sb.append("""
-                == Evaluation Instructions ==
-                Listen carefully to the audio response and evaluate it on the following \
-                6 criteria. Score each criterion from 1 (very poor) to 10 (excellent).
+                == 평가 지침 ==
+                음성 응답을 주의 깊게 듣고 아래 6가지 기준으로 평가하세요 (각 1~10점).
+                모든 피드백은 한국어로 작성하세요.
 
-                - pronunciation: Accuracy of individual sounds, consonants, vowels
-                - intonation: Natural rhythm, stress patterns, sentence melody
-                - grammar: Grammatical correctness and sentence structure
-                - vocabulary: Appropriateness, range, and precision of word choice
-                - fluency: Smoothness, pace, minimal unnatural hesitations
-                - content: Relevance to the question, completeness, coherence of response
+                점수 기준:
+                - scorePronunciation(발음): 자음·모음의 정확성, 각 단어의 발음 명료도
+                - scoreIntonation(억양): 자연스러운 리듬, 강세, 문장 멜로디
+                - scoreGrammar(문법): 문법적 정확성, 문장 구조의 적절성
+                - scoreVocabulary(어휘): 어휘 선택의 적절성, 다양성, 정확성
+                - scoreFluency(유창성): 말의 흐름, 속도, 불필요한 머뭇거림 정도
+                - scoreContent(내용): 질문과의 관련성, 답변의 완성도, 논리적 일관성
 
-                Also provide:
-                - transcript: Word-for-word transcription of what was said
-                - scoreOverall: Single overall score (1-10); weight content most heavily
-                - strengths: Exactly 2-3 specific positive observations (short phrases)
-                - improvements: Exactly 2-3 specific actionable suggestions (short phrases)
-                - detailedComment: One paragraph of constructive, encouraging feedback (2-4 sentences)
+                추가 항목:
+                - transcript: 발화 내용을 그대로 전사 (영어 응답이면 영어로)
+                - scoreOverall: 종합 점수 (1~10). content에 가장 높은 가중치 적용
+                - strengths: 잘한 점 2~3개. 각각 이 응답에서 실제로 관찰된 구체적인 내용을 \
+                  완전한 한국어 문장으로 서술 (발화 내용을 인용하면 더 좋음)
+                - improvements: 개선이 필요한 영역 2~3개. 각 항목은 다음 세 필드를 포함:
+                    * area: 평가 영역 (발음 / 억양 / 문법 / 어휘 / 유창성 / 내용 중 하나)
+                    * issue: 이 응답에서 발견된 구체적인 문제점 (1~2문장, 가능하면 발화 예시 인용)
+                    * suggestion: 개선을 위한 실용적이고 구체적인 조언 (1~2문장, 연습 방법 포함)
+                - detailedComment: 전반적인 격려와 핵심 피드백을 담은 2~4문장 한국어 코멘트
 
-                Return ONLY valid JSON in this exact format:
+                반드시 아래 JSON 형식으로만 응답하세요:
                 {
                   "transcript": "...",
                   "scorePronunciation": 7,
@@ -205,8 +212,17 @@ public class GeminiService {
                   "scoreFluency": 6,
                   "scoreContent": 8,
                   "scoreOverall": 7,
-                  "strengths": ["...", "...", "..."],
-                  "improvements": ["...", "...", "..."],
+                  "strengths": [
+                    "문장 구조가 명확하여 답변의 요점이 잘 전달되었습니다.",
+                    "어휘 선택이 다양하고 적절했습니다."
+                  ],
+                  "improvements": [
+                    {
+                      "area": "문법",
+                      "issue": "'I go store' 처럼 관사와 전치사가 생략된 경우가 있었습니다.",
+                      "suggestion": "명사 앞에 관사(a/the)와 전치사(to/at/in)를 넣는 연습을 하세요. 예: 'I go to the store.'"
+                    }
+                  ],
                   "detailedComment": "..."
                 }
                 """);
@@ -220,10 +236,18 @@ public class GeminiService {
     private FeedbackData parseFeedbackData(String json) {
         try {
             JsonNode node = objectMapper.readTree(json);
+
             List<String> strengths = new ArrayList<>();
-            List<String> improvements = new ArrayList<>();
             node.path("strengths").forEach(n -> strengths.add(n.asText()));
-            node.path("improvements").forEach(n -> improvements.add(n.asText()));
+
+            // improvements: 구조화된 객체 배열 파싱
+            // area(영역) + issue(문제점) + suggestion(개선 방법)
+            List<ImprovementItem> improvements = new ArrayList<>();
+            node.path("improvements").forEach(n -> improvements.add(new ImprovementItem(
+                    n.path("area").asText(""),
+                    n.path("issue").asText(""),
+                    n.path("suggestion").asText("")
+            )));
 
             return new FeedbackData(
                     node.path("transcript").asText(""),
@@ -561,7 +585,7 @@ public class GeminiService {
             short scoreContent,
             short scoreOverall,
             List<String> strengths,
-            List<String> improvements,
+            List<ImprovementItem> improvements,  // 구조화된 개선 항목
             String detailedComment
     ) {}
 

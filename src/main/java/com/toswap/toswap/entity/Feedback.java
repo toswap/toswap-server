@@ -1,5 +1,6 @@
 package com.toswap.toswap.entity;
 
+import com.toswap.toswap.dto.response.ImprovementItem;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -53,7 +54,7 @@ public class Feedback extends BaseEntity {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
-    private List<String> improvements;
+    private List<ImprovementItem> improvements;
 
     @Column(columnDefinition = "TEXT")
     private String detailedComment;
