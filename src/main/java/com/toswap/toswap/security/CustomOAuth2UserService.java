@@ -83,6 +83,6 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                         .profileImageUrl(profileImageUrl)
                         .build()));
 
-        return new CustomOAuth2User(user, attributes);
+        return new CustomOAuth2User(user.getId(), user.getName(), user.hasEmail(), attributes);
     }
 }

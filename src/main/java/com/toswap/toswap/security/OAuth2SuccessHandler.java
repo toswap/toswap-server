@@ -33,7 +33,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
         // 카카오 비즈앱 미등록 → 이메일 없음 → 추가 정보 입력 페이지로 이동
         // 이메일이 있으면 메인 페이지로 바로 이동
-        String targetUrl = oAuth2User.getUser().hasEmail()
+        String targetUrl = oAuth2User.hasEmail()
                 ? frontendUrl
                 : frontendUrl + "/additional-info";
 
