@@ -26,6 +26,11 @@ public enum ErrorCode {
     PRACTICE_SESSION_NOT_FOUND(404, "연습 세션을 찾을 수 없습니다."),
     PRACTICE_SESSION_ALREADY_DONE(400, "이미 완료된 연습 세션입니다."),
 
+    // 피드백
+    FEEDBACK_NOT_FOUND(404, "피드백을 찾을 수 없습니다."),
+    FEEDBACK_ALREADY_EXISTS(400, "이미 평가된 세션입니다."),
+    FEEDBACK_EVALUATION_FAILED(500, "AI 음성 평가에 실패했습니다."),
+
     // 시험 세션
     EXAM_SESSION_NOT_FOUND(404, "시험 세션을 찾을 수 없습니다."),
     EXAM_ALREADY_IN_PROGRESS(400, "이미 진행 중인 시험이 있습니다. 먼저 현재 시험을 완료하거나 포기해주세요."),

@@ -13,6 +13,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Gemini AI API 연동 서비스.
@@ -122,6 +123,174 @@ public class GeminiService {
         } catch (Exception e) {
             log.error("Gemini 그룹 문제 JSON 파싱 실패 (partId={}): {}", partId, e.getMessage());
             throw new BusinessException(ErrorCode.QUESTION_GENERATION_FAILED);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 음성 평가 (Feedback API용)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * 음성 파일을 받아 TOEIC Speaking 기준으로 평가한다.
+     *
+     * Gemini의 멀티모달 기능(inline_data)으로 오디오를 직접 전송한다.
+     * 브라우저 MediaRecorder는 보통 audio/webm;codecs=opus 형식을 사용한다.
+     * Gemini 2.5 Flash가 지원하는 포맷: WAV, MP3, AIFF, AAC, OGG, FLAC, WebM/Opus
+     *
+     * @param audioBytes 녹음된 음성 바이트 배열
+     * @param mimeType   오디오 MIME 타입 (예: "audio/webm", "audio/wav")
+     * @param ctx        평가 컨텍스트 (파트, 질문 내용, 공통 배경)
+     */
+    public FeedbackData evaluateAudio(byte[] audioBytes, String mimeType, EvaluationContext ctx) {
+        String prompt = buildEvaluationPrompt(ctx);
+        String jsonText = callGeminiWithAudio(prompt, audioBytes, mimeType, ctx.partId());
+        return parseFeedbackData(jsonText);
+    }
+
+    private String buildEvaluationPrompt(EvaluationContext ctx) {
+        String partName = switch (ctx.partId()) {
+            case 1 -> "Read a Text Aloud";
+            case 2 -> "Describe a Picture";
+            case 3 -> "Respond to Questions";
+            case 4 -> "Respond to Questions Using Information Provided";
+            case 5 -> "Express an Opinion";
+            default -> "Unknown";
+        };
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("""
+                You are an expert TOEIC Speaking test evaluator with deep knowledge \
+                of the official TOEIC Speaking scoring rubric.
+
+                == Test Information ==
+                Part %d: %s
+
+                """.formatted(ctx.partId(), partName));
+
+        // Part 3/4/5: 공통 배경 포함
+        if (ctx.contextContent() != null && !ctx.contextContent().isBlank()) {
+            sb.append("== Context/Document Given to Test Taker ==\n");
+            sb.append(ctx.contextContent()).append("\n\n");
+        }
+
+        sb.append("== Question ==\n");
+        sb.append(ctx.questionContent()).append("\n\n");
+
+        sb.append("""
+                == Evaluation Instructions ==
+                Listen carefully to the audio response and evaluate it on the following \
+                6 criteria. Score each criterion from 1 (very poor) to 10 (excellent).
+
+                - pronunciation: Accuracy of individual sounds, consonants, vowels
+                - intonation: Natural rhythm, stress patterns, sentence melody
+                - grammar: Grammatical correctness and sentence structure
+                - vocabulary: Appropriateness, range, and precision of word choice
+                - fluency: Smoothness, pace, minimal unnatural hesitations
+                - content: Relevance to the question, completeness, coherence of response
+
+                Also provide:
+                - transcript: Word-for-word transcription of what was said
+                - scoreOverall: Single overall score (1-10); weight content most heavily
+                - strengths: Exactly 2-3 specific positive observations (short phrases)
+                - improvements: Exactly 2-3 specific actionable suggestions (short phrases)
+                - detailedComment: One paragraph of constructive, encouraging feedback (2-4 sentences)
+
+                Return ONLY valid JSON in this exact format:
+                {
+                  "transcript": "...",
+                  "scorePronunciation": 7,
+                  "scoreIntonation": 6,
+                  "scoreGrammar": 8,
+                  "scoreVocabulary": 7,
+                  "scoreFluency": 6,
+                  "scoreContent": 8,
+                  "scoreOverall": 7,
+                  "strengths": ["...", "...", "..."],
+                  "improvements": ["...", "...", "..."],
+                  "detailedComment": "..."
+                }
+                """);
+
+        return sb.toString();
+    }
+
+    /**
+     * 음성 평가 결과 JSON 파싱.
+     */
+    private FeedbackData parseFeedbackData(String json) {
+        try {
+            JsonNode node = objectMapper.readTree(json);
+            List<String> strengths = new ArrayList<>();
+            List<String> improvements = new ArrayList<>();
+            node.path("strengths").forEach(n -> strengths.add(n.asText()));
+            node.path("improvements").forEach(n -> improvements.add(n.asText()));
+
+            return new FeedbackData(
+                    node.path("transcript").asText(""),
+                    (short) node.path("scorePronunciation").asInt(5),
+                    (short) node.path("scoreIntonation").asInt(5),
+                    (short) node.path("scoreGrammar").asInt(5),
+                    (short) node.path("scoreVocabulary").asInt(5),
+                    (short) node.path("scoreFluency").asInt(5),
+                    (short) node.path("scoreContent").asInt(5),
+                    (short) node.path("scoreOverall").asInt(5),
+                    strengths,
+                    improvements,
+                    node.path("detailedComment").asText("")
+            );
+        } catch (Exception e) {
+            log.error("Gemini 피드백 JSON 파싱 실패: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED);
+        }
+    }
+
+    /**
+     * 오디오 + 텍스트 멀티모달 Gemini 호출.
+     *
+     * 기존 callGemini()는 텍스트만 지원하는 GeminiRequest 레코드를 사용한다.
+     * 오디오는 inline_data 필드가 추가된 다른 JSON 구조가 필요하므로
+     * Map<String, Object>로 직접 구성해 Jackson이 직렬화하도록 한다.
+     */
+    private String callGeminiWithAudio(String prompt, byte[] audioBytes, String mimeType, short partId) {
+        String base64Audio = java.util.Base64.getEncoder().encodeToString(audioBytes);
+
+        // 멀티모달 요청: 오디오 part + 텍스트 part
+        var audioPart = Map.of(
+                "inline_data", Map.of(
+                        "mime_type", mimeType,
+                        "data", base64Audio
+                )
+        );
+        var textPart = Map.of("text", prompt);
+
+        var requestBody = Map.of(
+                "contents", List.of(Map.of("parts", List.of(audioPart, textPart))),
+                "generationConfig", Map.of("responseMimeType", "application/json")
+        );
+
+        try {
+            GeminiApiResponse response = webClient.post()
+                    .uri("/v1beta/models/" + MODEL + ":generateContent")
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError,
+                            resp -> Mono.error(new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED)))
+                    .bodyToMono(GeminiApiResponse.class)
+                    .block();
+
+            if (response == null
+                    || response.candidates() == null
+                    || response.candidates().isEmpty()) {
+                throw new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED);
+            }
+
+            return response.candidates().get(0).content().parts().get(0).text();
+
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Gemini 음성 평가 API 호출 실패 (partId={}): {}", partId, e.getMessage());
+            throw new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED);
         }
     }
 
@@ -366,6 +535,35 @@ public class GeminiService {
 
     /** Part 1/2 Gemini 결과. imageKeyword는 Part 2에만 존재. */
     public record QuestionData(String content, String imageKeyword) {}
+
+    /**
+     * 음성 평가 컨텍스트.
+     * FeedbackService가 GeminiService.evaluateAudio() 호출 시 전달한다.
+     */
+    public record EvaluationContext(
+            short partId,
+            String questionContent,
+            String contextContent   // Part 1/2: null, Part 3/4/5: 공통 배경 텍스트
+    ) {}
+
+    /**
+     * Gemini 음성 평가 결과.
+     * 모든 점수는 1~10 척도.
+     * FeedbackService가 이 데이터를 받아 Feedback 엔티티를 생성한다.
+     */
+    public record FeedbackData(
+            String transcript,
+            short scorePronunciation,
+            short scoreIntonation,
+            short scoreGrammar,
+            short scoreVocabulary,
+            short scoreFluency,
+            short scoreContent,
+            short scoreOverall,
+            List<String> strengths,
+            List<String> improvements,
+            String detailedComment
+    ) {}
 
     /**
      * Part 3/4/5 Gemini 결과.

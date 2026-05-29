@@ -11,6 +11,21 @@ import java.util.Optional;
 public interface PracticeSessionRepository extends JpaRepository<PracticeSession, Long> {
 
     /**
+     * Feedback 제출용 세션 조회 (question, questionGroup, examSession 모두 JOIN FETCH).
+     * FeedbackService에서 평가 후 ExamSession 완료 여부 확인 시 examSession에 접근이 필요하다.
+     */
+    @Query("""
+            SELECT ps FROM PracticeSession ps
+            JOIN FETCH ps.question
+            LEFT JOIN FETCH ps.questionGroup
+            LEFT JOIN FETCH ps.examSession
+            WHERE ps.id = :id AND ps.user.id = :userId
+            """)
+    Optional<PracticeSession> findByIdAndUserIdForFeedback(
+            @Param("id") Long id,
+            @Param("userId") Long userId);
+
+    /**
      * 세션 단건 조회 (question, questionGroup JOIN FETCH).
      *
      * 서비스 레이어에서 question.content, questionGroup.contextContent 등에
