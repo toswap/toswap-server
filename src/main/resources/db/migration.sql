@@ -1,4 +1,78 @@
 -- ============================================================
+-- 초기 스키마 (참고용 - 로컬 개발: ddl-auto=update 자동 생성)
+-- ============================================================
+
+-- 공통 BaseEntity 컬럼: created_at, updated_at (모든 테이블 공통)
+
+CREATE TABLE users (
+    id          BIGSERIAL    PRIMARY KEY,
+    provider    VARCHAR(20)  NOT NULL,
+    provider_id VARCHAR(100) NOT NULL,
+    nickname    VARCHAR(50)  NOT NULL,
+    email       VARCHAR(255),
+    created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
+    UNIQUE (provider, provider_id)
+);
+
+CREATE TABLE questions (
+    id               BIGSERIAL    PRIMARY KEY,
+    part_id          SMALLINT     NOT NULL,
+    content          TEXT         NOT NULL,
+    image_url        VARCHAR(500),
+    image_keyword    VARCHAR(100),
+    prep_seconds     SMALLINT     NOT NULL,
+    response_seconds SMALLINT     NOT NULL,
+    created_at       TIMESTAMP    NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE exam_sessions (
+    id              BIGSERIAL   PRIMARY KEY,
+    user_id         BIGINT      NOT NULL REFERENCES users(id),
+    status          VARCHAR(20) NOT NULL DEFAULT 'IN_PROGRESS',
+    predicted_score SMALLINT,
+    predicted_level SMALLINT,
+    completed_at    TIMESTAMP,
+    created_at      TIMESTAMP   NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_exam_sessions_user_id ON exam_sessions (user_id);
+
+CREATE TABLE practice_sessions (
+    id                BIGSERIAL   PRIMARY KEY,
+    user_id           BIGINT      NOT NULL REFERENCES users(id),
+    question_id       BIGINT      NOT NULL REFERENCES questions(id),
+    exam_session_id   BIGINT      REFERENCES exam_sessions(id) ON DELETE SET NULL,
+    audio_path        VARCHAR(500),
+    status            VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    created_at        TIMESTAMP   NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMP   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_practice_sessions_user_id ON practice_sessions (user_id);
+CREATE INDEX idx_practice_sessions_exam_session_id ON practice_sessions (exam_session_id);
+
+CREATE TABLE feedbacks (
+    id                    BIGSERIAL PRIMARY KEY,
+    session_id            BIGINT    NOT NULL UNIQUE REFERENCES practice_sessions(id),
+    transcript            TEXT,
+    score_pronunciation   SMALLINT  NOT NULL,
+    score_intonation      SMALLINT  NOT NULL,
+    score_grammar         SMALLINT  NOT NULL,
+    score_vocabulary      SMALLINT  NOT NULL,
+    score_fluency         SMALLINT  NOT NULL,
+    score_content         SMALLINT  NOT NULL,
+    score_overall         SMALLINT  NOT NULL,
+    strengths             JSONB,
+    improvements          JSONB,
+    detailed_comment      TEXT,
+    created_at            TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
 -- TOEIC Speaking 문제 구조 개선 마이그레이션
 --
 -- 변경 내용:

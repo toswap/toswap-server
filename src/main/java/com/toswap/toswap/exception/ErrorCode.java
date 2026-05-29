@@ -24,7 +24,12 @@ public enum ErrorCode {
 
     // 연습 세션
     PRACTICE_SESSION_NOT_FOUND(404, "연습 세션을 찾을 수 없습니다."),
-    PRACTICE_SESSION_ALREADY_DONE(400, "이미 완료된 연습 세션입니다.");
+    PRACTICE_SESSION_ALREADY_DONE(400, "이미 완료된 연습 세션입니다."),
+
+    // 시험 세션
+    EXAM_SESSION_NOT_FOUND(404, "시험 세션을 찾을 수 없습니다."),
+    EXAM_ALREADY_IN_PROGRESS(400, "이미 진행 중인 시험이 있습니다. 먼저 현재 시험을 완료하거나 포기해주세요."),
+    EXAM_SESSION_ALREADY_FINISHED(400, "이미 종료된 시험 세션입니다.");
 
     private final int status;
     private final String message;

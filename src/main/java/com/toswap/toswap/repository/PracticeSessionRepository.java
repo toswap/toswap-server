@@ -42,6 +42,18 @@ public interface PracticeSessionRepository extends JpaRepository<PracticeSession
             """)
     List<PracticeSession> findHistoryByUserId(@Param("userId") Long userId);
 
-    // 시험 세션 내의 모든 연습 세션 조회 (ExamSession 생성 시 사용)
-    List<PracticeSession> findByExamSessionId(Long examSessionId);
+    /**
+     * 시험 세션에 속한 모든 연습 세션을 가져온다.
+     * question, questionGroup을 JOIN FETCH해서 N+1 없이 처리.
+     * 파트 ID → sequenceNo 순으로 정렬해서 11문제가 시험 순서대로 반환된다.
+     * Part 1/2(sequenceNo=null)는 NULLS FIRST로 파트 내 독립 문제들이 앞에 온다.
+     */
+    @Query("""
+            SELECT ps FROM PracticeSession ps
+            JOIN FETCH ps.question q
+            LEFT JOIN FETCH ps.questionGroup
+            WHERE ps.examSession.id = :examSessionId
+            ORDER BY q.partId ASC, q.sequenceNo ASC NULLS FIRST
+            """)
+    List<PracticeSession> findByExamSessionIdWithDetails(@Param("examSessionId") Long examSessionId);
 }
