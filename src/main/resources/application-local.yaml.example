@@ -1,0 +1,30 @@
+# 이 파일을 복사해서 application-local.yaml 로 만들고 실제 값을 채워주세요.
+# application-local.yaml 은 .gitignore 에 추가해야 합니다.
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/toswap
+    username: postgres
+    password: postgres
+
+  jpa:
+    hibernate:
+      ddl-auto: update   # 로컬 개발 시 update 권장
+    show-sql: true
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: your-google-client-id
+            client-secret: your-google-client-secret
+          kakao:
+            client-id: your-kakao-rest-api-key
+            client-secret: your-kakao-client-secret
+
+external:
+  gemini:
+    api-key: your-gemini-api-key
+  unsplash:
+    api-key: your-unsplash-access-key
