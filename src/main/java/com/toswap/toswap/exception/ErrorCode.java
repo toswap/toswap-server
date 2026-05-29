@@ -20,7 +20,11 @@ public enum ErrorCode {
     // 문제
     QUESTION_NOT_FOUND(404, "문제를 찾을 수 없습니다."),
     QUESTION_GENERATION_FAILED(500, "문제 생성에 실패했습니다."),
-    INVALID_PART_ID(400, "파트 ID는 1~5 사이여야 합니다.");
+    INVALID_PART_ID(400, "파트 ID는 1~5 사이여야 합니다."),
+
+    // 연습 세션
+    PRACTICE_SESSION_NOT_FOUND(404, "연습 세션을 찾을 수 없습니다."),
+    PRACTICE_SESSION_ALREADY_DONE(400, "이미 완료된 연습 세션입니다.");
 
     private final int status;
     private final String message;

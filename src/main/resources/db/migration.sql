@@ -26,3 +26,13 @@ ALTER TABLE questions
 
 -- 인덱스: 그룹 ID로 질문 목록 조회 시 성능
 CREATE INDEX idx_questions_group_id ON questions (group_id);
+
+-- ============================================================
+-- practice_sessions 테이블 변경
+--   question_group_id 추가: Part 3/4/5 세션들을 같은 그룹으로 묶기 위함
+--   Part 1/2는 NULL, Part 3/4/5는 question_groups.id를 참조
+-- ============================================================
+ALTER TABLE practice_sessions
+    ADD COLUMN question_group_id BIGINT REFERENCES question_groups(id) ON DELETE SET NULL;
+
+CREATE INDEX idx_practice_sessions_group_id ON practice_sessions (question_group_id);
