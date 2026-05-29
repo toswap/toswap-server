@@ -45,6 +45,11 @@ public class SecurityConfig {
             // SPA(React 등) + 세션 구조에서는 CSRF 토큰 대신 CORS 정책으로 보호
             .csrf(AbstractHttpConfigurer::disable)
 
+            // 카카오 OAuth2만 사용하므로 기본 폼 로그인 / HTTP Basic 비활성화
+            // 비활성화하지 않으면 Spring Security가 자체 로그인 페이지로 리다이렉트
+            .formLogin(AbstractHttpConfigurer::disable)
+            .httpBasic(AbstractHttpConfigurer::disable)
+
             // CORS 설정 적용 (아래 corsConfigurationSource 빈 사용)
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
@@ -52,6 +57,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // OAuth2 로그인 시작 경로와 콜백 경로는 인증 없이 접근 가능
                 .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+                // Swagger UI 및 OpenAPI 명세 경로 허용
+                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
                 // /api/** 하위는 모두 로그인 필요
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()

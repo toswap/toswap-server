@@ -42,6 +42,9 @@ dependencies {
     runtimeOnly 'org.postgresql:postgresql'
     annotationProcessor 'org.projectlombok:lombok'
 
+    // Swagger UI (OpenAPI 3) - Spring Boot 4.x 호환 버전
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.0'
+
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
     testCompileOnly 'org.projectlombok:lombok'

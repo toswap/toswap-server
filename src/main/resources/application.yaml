@@ -67,3 +67,12 @@ external:
 
 app:
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html       # Swagger UI 접속 경로
+    tags-sorter: alpha            # 태그 알파벳 정렬
+    operations-sorter: alpha      # 엔드포인트 알파벳 정렬
+    display-request-duration: true  # 응답 시간 표시 (Gemini 호출 시간 확인용)
+  api-docs:
+    path: /v3/api-docs
