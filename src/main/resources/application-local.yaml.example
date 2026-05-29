@@ -7,6 +7,13 @@ spring:
     username: postgres
     password: postgres
 
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: your-redis-password   # 없으면 제거
+      database: 1
+
   jpa:
     hibernate:
       ddl-auto: update   # 로컬 개발 시 update 권장

@@ -17,10 +17,17 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: false
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:1}
+
   session:
-    store-type: jdbc
-    jdbc:
-      initialize-schema: always
+    store-type: redis
+    redis:
+      namespace: toswap:session
 
   security:
     oauth2:
@@ -57,3 +64,6 @@ external:
     api-key: ${GEMINI_API_KEY}
   unsplash:
     api-key: ${UNSPLASH_API_KEY}
+
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
