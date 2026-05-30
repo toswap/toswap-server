@@ -96,9 +96,14 @@ public class FeedbackService {
         }
 
         // MIME 타입 결정 (브라우저 MediaRecorder 기본값: audio/webm)
-        String mimeType = (audio.getContentType() != null && !audio.getContentType().isBlank())
+        // "audio/webm;codecs=opus" 같은 codecs 파라미터를 제거해야 Gemini가 인식함
+        String rawMime = (audio.getContentType() != null && !audio.getContentType().isBlank())
                 ? audio.getContentType()
                 : "audio/webm";
+        String mimeType = rawMime.split(";")[0].trim();
+
+        log.info("음성 평가 시작 (sessionId={}, mimeType={}, audioSize={}bytes)",
+                sessionId, mimeType, audioBytes.length);
 
         // 4. PROCESSING 상태 전환 (파일명을 audioPath에 기록)
         session.startProcessing(audio.getOriginalFilename());

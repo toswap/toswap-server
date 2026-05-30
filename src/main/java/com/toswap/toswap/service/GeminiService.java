@@ -13,9 +13,12 @@ import tools.jackson.databind.ObjectMapper;
 
 import com.toswap.toswap.dto.response.ImprovementItem;
 
+import org.springframework.http.MediaType;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Gemini AI API 연동 서비스.
@@ -38,7 +41,8 @@ import java.util.Map;
 @Service
 public class GeminiService {
 
-    private static final String MODEL = "gemini-2.5-flash";
+    // 문제 생성 + 음성 평가 공통 모델: 500 RPD 무료, 오디오 입력 지원 확인
+    private static final String MODEL = "gemini-3.1-flash-lite";
     private static final String BASE_URL = "https://generativelanguage.googleapis.com";
 
     private final WebClient webClient;
@@ -269,36 +273,88 @@ public class GeminiService {
     }
 
     /**
-     * 오디오 + 텍스트 멀티모달 Gemini 호출.
+     * 오디오 평가: Gemini File API에 먼저 업로드 후 URI로 generateContent 호출.
      *
-     * 기존 callGemini()는 텍스트만 지원하는 GeminiRequest 레코드를 사용한다.
-     * 오디오는 inline_data 필드가 추가된 다른 JSON 구조가 필요하므로
-     * Map<String, Object>로 직접 구성해 Jackson이 직렬화하도록 한다.
+     * inline_data(base64 직접 첨부) 방식은 일부 모델에서 500 에러를 유발한다.
+     * File API 방식은 업로드 URI를 참조하므로 더 안정적이다.
+     *
+     * 업로드 흐름:
+     *   1. POST /upload/v1beta/files → 업로드 세션 시작, x-goog-upload-url 수신
+     *   2. PUT {uploadUrl} → 오디오 바이트 전송, file URI 수신
+     *   3. POST /v1beta/models/{model}:generateContent → file_data URI 참조로 평가 요청
      */
     private String callGeminiWithAudio(String prompt, byte[] audioBytes, String mimeType, short partId) {
-        String base64Audio = java.util.Base64.getEncoder().encodeToString(audioBytes);
-
-        // 멀티모달 요청: 오디오 part + 텍스트 part
-        var audioPart = Map.of(
-                "inline_data", Map.of(
-                        "mime_type", mimeType,
-                        "data", base64Audio
-                )
-        );
-        var textPart = Map.of("text", prompt);
-
-        var requestBody = Map.of(
-                "contents", List.of(Map.of("parts", List.of(audioPart, textPart))),
-                "generationConfig", Map.of("responseMimeType", "application/json")
-        );
-
         try {
+            // Step 1: 업로드 세션 시작
+            var initEntity = webClient.post()
+                    .uri("/upload/v1beta/files")
+                    .header("X-Goog-Upload-Protocol", "resumable")
+                    .header("X-Goog-Upload-Command", "start")
+                    .header("X-Goog-Upload-Header-Content-Length", String.valueOf(audioBytes.length))
+                    .header("X-Goog-Upload-Header-Content-Type", mimeType)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of("file", Map.of()))
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError,
+                            resp -> resp.bodyToMono(String.class)
+                                    .doOnNext(body -> log.error("Gemini 파일 업로드 세션 오류 (partId={}, status={}): {}",
+                                            partId, resp.statusCode(), body))
+                                    .then(Mono.error(new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED))))
+                    .toBodilessEntity()
+                    .block();
+
+            String uploadUrl = Objects.requireNonNull(initEntity)
+                    .getHeaders().getFirst("x-goog-upload-url");
+            if (uploadUrl == null) {
+                log.error("Gemini 파일 업로드 URL 수신 실패 (partId={})", partId);
+                throw new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED);
+            }
+
+            // Step 2: 오디오 바이트 업로드 (절대 URL이므로 별도 WebClient 사용)
+            @SuppressWarnings("unchecked")
+            Map<String, Object> uploadResult = (Map<String, Object>) WebClient.create().put()
+                    .uri(uploadUrl)
+                    .header("Content-Length", String.valueOf(audioBytes.length))
+                    .header("X-Goog-Upload-Command", "upload, finalize")
+                    .header("X-Goog-Upload-Offset", "0")
+                    .contentType(MediaType.parseMediaType(mimeType))
+                    .bodyValue(audioBytes)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> fileInfo = (Map<String, Object>) Objects.requireNonNull(uploadResult).get("file");
+            String fileUri = (String) fileInfo.get("uri");
+            String fileName = (String) fileInfo.get("name"); // "files/xxxxxx" 형태
+            log.info("Gemini 파일 업로드 완료 (partId={}, fileUri={})", partId, fileUri);
+
+            // Step 2.5: 파일이 ACTIVE 상태가 될 때까지 대기 (PROCESSING 중 generateContent 호출 시 500 에러)
+            waitUntilFileActive(fileName);
+
+            // Step 3: 파일 URI로 generateContent 호출
+            var fileDataPart = Map.of(
+                    "file_data", Map.of(
+                            "mime_type", mimeType,
+                            "file_uri", fileUri
+                    )
+            );
+            var textPart = Map.of("text", prompt);
+
+            var requestBody = Map.of(
+                    "contents", List.of(Map.of("parts", List.of(textPart, fileDataPart))),
+                    "generationConfig", Map.of("responseMimeType", "application/json")
+            );
+
             GeminiApiResponse response = webClient.post()
                     .uri("/v1beta/models/" + MODEL + ":generateContent")
                     .bodyValue(requestBody)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError,
-                            resp -> Mono.error(new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED)))
+                            resp -> resp.bodyToMono(String.class)
+                                    .doOnNext(body -> log.error("Gemini 음성 평가 API 오류 (partId={}, status={}): {}",
+                                            partId, resp.statusCode(), body))
+                                    .then(Mono.error(new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED))))
                     .bodyToMono(GeminiApiResponse.class)
                     .block();
 
@@ -316,6 +372,42 @@ public class GeminiService {
             log.error("Gemini 음성 평가 API 호출 실패 (partId={}): {}", partId, e.getMessage());
             throw new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED);
         }
+    }
+
+    /**
+     * 파일이 ACTIVE 상태가 될 때까지 폴링한다.
+     * 업로드 직후 파일은 PROCESSING 상태일 수 있으며, 이 상태에서 generateContent를 호출하면 500 에러가 발생한다.
+     * 최대 20초(1초 간격 × 20회) 대기하며, 그 이후에도 ACTIVE가 되지 않으면 그냥 진행한다.
+     */
+    private void waitUntilFileActive(String fileName) {
+        if (fileName == null) return;
+
+        for (int i = 0; i < 20; i++) {
+            try {
+                Thread.sleep(1_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> fileStatus = webClient.get()
+                    .uri("/v1beta/" + fileName)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            if (fileStatus == null) continue;
+            String state = (String) fileStatus.get("state");
+            log.info("파일 상태 확인 (fileName={}, state={}, 시도={})", fileName, state, i + 1);
+
+            if ("ACTIVE".equals(state)) return;
+            if ("FAILED".equals(state)) {
+                log.error("Gemini 파일 처리 실패: {}", fileName);
+                throw new BusinessException(ErrorCode.FEEDBACK_EVALUATION_FAILED);
+            }
+        }
+        log.warn("파일 ACTIVE 대기 시간 초과, 강제 진행 (fileName={})", fileName);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -336,7 +428,10 @@ public class GeminiService {
                     .bodyValue(request)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError,
-                            resp -> Mono.error(new BusinessException(ErrorCode.QUESTION_GENERATION_FAILED)))
+                            resp -> resp.bodyToMono(String.class)
+                                    .doOnNext(body -> log.error("Gemini 문제 생성 API 오류 (partId={}, status={}): {}",
+                                            partId, resp.statusCode(), body))
+                                    .then(Mono.error(new BusinessException(ErrorCode.QUESTION_GENERATION_FAILED))))
                     .bodyToMono(GeminiApiResponse.class)
                     .block();
 

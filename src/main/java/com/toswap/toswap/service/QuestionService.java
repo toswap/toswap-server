@@ -10,11 +10,14 @@ import com.toswap.toswap.exception.ErrorCode;
 import com.toswap.toswap.repository.QuestionGroupRepository;
 import com.toswap.toswap.repository.QuestionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 문제 생성 및 조회 서비스.
@@ -33,9 +36,14 @@ import java.util.List;
  *   참조해야 한다 (PracticeSession.question = question). DTO에서는 ID만 있어서
  *   재조회가 필요해지는 비효율이 생기므로, 엔티티 자체를 반환하는 내부 메서드를 공유한다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class QuestionService {
+
+    // 풀에 이 수 이상 쌓이면 POOL_HIT_RATE 확률로 기존 문제를 재사용
+    private static final int  POOL_MIN_SIZE  = 5;
+    private static final double POOL_HIT_RATE = 0.8;
 
     private final QuestionRepository questionRepository;
     private final QuestionGroupRepository questionGroupRepository;
@@ -75,11 +83,22 @@ public class QuestionService {
     // ══════════════════════════════════════════════════════════════════════════
 
     /**
-     * Part 1/2: Gemini로 문제를 생성하고 Question 엔티티를 저장 후 반환.
+     * Part 1/2: 풀에 문제가 충분하면 랜덤 재사용, 부족하면 Gemini로 신규 생성 후 저장.
      * 호출 시점의 트랜잭션에 참여한다(PROPAGATION_REQUIRED).
      */
     @Transactional
     public Question generateAndSaveSingleQuestion(short partId) {
+        long poolSize = questionRepository.countByPartIdAndQuestionGroupIsNull((short) partId);
+        if (poolSize >= POOL_MIN_SIZE && ThreadLocalRandom.current().nextDouble() < POOL_HIT_RATE) {
+            List<Question> candidates = questionRepository.findRandomStandalone(
+                    (short) partId, PageRequest.of(0, 1));
+            if (!candidates.isEmpty()) {
+                log.info("문제 풀 재사용 (partId={}, poolSize={})", partId, poolSize);
+                return candidates.get(0);
+            }
+        }
+
+        log.info("Gemini 신규 문제 생성 (partId={}, poolSize={})", partId, poolSize);
         GeminiService.QuestionData data = geminiService.generateQuestion(partId);
 
         String imageUrl = null;
@@ -99,11 +118,27 @@ public class QuestionService {
     }
 
     /**
-     * Part 3/4/5: Gemini로 그룹 문제를 생성하고 QuestionGroup + Question들을 저장 후 반환.
+     * Part 3/4/5: 풀에 그룹이 충분하면 랜덤 재사용, 부족하면 Gemini로 신규 생성 후 저장.
      * 반환된 QuestionGroup에는 questions 컬렉션이 JOIN FETCH로 로딩된 상태다.
      */
     @Transactional
     public QuestionGroup generateAndSaveGroupQuestions(short partId) {
+        long poolSize = questionGroupRepository.countByPartId((short) partId);
+        if (poolSize >= POOL_MIN_SIZE && ThreadLocalRandom.current().nextDouble() < POOL_HIT_RATE) {
+            List<QuestionGroup> candidates = questionGroupRepository.findRandom(
+                    (short) partId, PageRequest.of(0, 1));
+            if (!candidates.isEmpty()) {
+                QuestionGroup picked = questionGroupRepository
+                        .findByIdWithQuestions(candidates.get(0).getId())
+                        .orElse(null);
+                if (picked != null) {
+                    log.info("문제 그룹 풀 재사용 (partId={}, poolSize={})", partId, poolSize);
+                    return picked;
+                }
+            }
+        }
+
+        log.info("Gemini 신규 그룹 생성 (partId={}, poolSize={})", partId, poolSize);
         GeminiService.QuestionGroupData groupData = geminiService.generateQuestionGroup(partId);
 
         // 공통 배경 저장
