@@ -25,7 +25,7 @@ public interface QuestionGroupRepository extends JpaRepository<QuestionGroup, Lo
     long countByPartId(Short partId);
 
     // Step 1: 랜덤 그룹 ID만 추출 (questions 로딩 없이 — JOIN FETCH + Pageable 조합 방지)
-    @Query("SELECT qg FROM QuestionGroup qg WHERE qg.partId = :partId ORDER BY FUNCTION('RAND')")
+    @Query("SELECT qg FROM QuestionGroup qg WHERE qg.partId = :partId ORDER BY FUNCTION('random')")
     List<QuestionGroup> findRandom(@Param("partId") Short partId, Pageable pageable);
     // Step 2: 추출한 ID로 findByIdWithQuestions() 호출해서 questions까지 로딩
 }

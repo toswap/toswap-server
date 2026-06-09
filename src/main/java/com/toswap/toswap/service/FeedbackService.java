@@ -193,11 +193,13 @@ public class FeedbackService {
         List<Feedback> feedbacks =
                 feedbackRepository.findByPracticeSessionExamSessionId(examSession.getId());
 
-        if (feedbacks.size() != examSessions.size()) {
-            // 아직 일부 피드백이 저장되지 않음 (동시성 엣지케이스)
-            log.warn("시험 완료 체크: 피드백 수({})와 세션 수({}) 불일치. examSessionId={}",
-                    feedbacks.size(), examSessions.size(), examSession.getId());
+        if (feedbacks.isEmpty()) {
             return;
+        }
+        if (feedbacks.size() != examSessions.size()) {
+            // 동시성 엣지케이스 또는 일부 세션 이상 — 경고 후 가진 피드백으로 점수 계산
+            log.warn("시험 완료 체크: 피드백 수({})와 세션 수({}) 불일치, 가진 피드백으로 점수 계산. examSessionId={}",
+                    feedbacks.size(), examSessions.size(), examSession.getId());
         }
 
         double avgOverall = feedbacks.stream()

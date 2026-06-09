@@ -14,10 +14,10 @@ import java.util.List;
  *
  * ── Part별 구조 ───────────────────────────────────────────────────────────────
  *   Part 1 (2문제): questionGroupId=null, contextContent=null, sessions 2개
- *   Part 2 (1문제): questionGroupId=null, contextContent=null, sessions 1개
+ *   Part 2 (2문제): questionGroupId=null, contextContent=null, sessions 2개 (각각 다른 사진)
  *   Part 3 (3문제): questionGroupId≠null, contextContent(서베이 안내), sessions 3개
  *   Part 4 (3문제): questionGroupId≠null, contextContent(문서/표), sessions 3개
- *   Part 5 (2문제): questionGroupId≠null, contextContent(의견 주제), sessions 2개
+ *   Part 5 (1문제): questionGroupId≠null, contextContent(의견 주제), sessions 1개
  *   → 총 11 sessions
  */
 public record ExamStartResponse(

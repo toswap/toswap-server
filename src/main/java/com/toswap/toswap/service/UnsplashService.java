@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Unsplash API 연동 서비스.
@@ -45,7 +46,7 @@ public class UnsplashService {
                     .uri(uriBuilder -> uriBuilder
                             .path("/search/photos")
                             .queryParam("query", keyword)
-                            .queryParam("per_page", 1)
+                            .queryParam("per_page", 10)
                             .queryParam("orientation", "landscape") // 가로형 사진이 묘사 문제에 적합
                             .build())
                     .retrieve()
@@ -58,7 +59,8 @@ public class UnsplashService {
                 return null;
             }
 
-            return response.results().get(0).urls().regular();
+            int idx = ThreadLocalRandom.current().nextInt(response.results().size());
+            return response.results().get(idx).urls().regular();
 
         } catch (Exception e) {
             // 이미지 검색 실패해도 문제 생성은 계속 진행

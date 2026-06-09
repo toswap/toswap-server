@@ -117,12 +117,16 @@ public class GeminiService {
                 questions.add(new QuestionItemData(q.path("content").asText()));
             }
 
-            // 파트별 기대 질문 수 검증
-            int expectedCount = (partId == 5) ? 2 : 3;
-            if (questions.size() != expectedCount) {
-                log.warn("Gemini 그룹 문제 개수 불일치: partId={}, expected={}, actual={}",
-                        partId, expectedCount, questions.size());
-                // 불일치해도 서비스는 유지 (부분적으로 사용)
+            // 파트별 기대 질문 수 검증 — 초과분은 잘라내어 세션 수 불일치로 인한 시험 완료 오류 방지
+            int expectedCount = (partId == 5) ? 1 : 3;
+            int actualCount = questions.size();
+            if (actualCount > expectedCount) {
+                log.warn("Gemini 초과 질문 제거 (partId={}, expected={}, actual={})",
+                        partId, expectedCount, actualCount);
+                questions = questions.subList(0, expectedCount);
+            } else if (actualCount != expectedCount) {
+                log.warn("Gemini 그룹 문제 개수 부족 (partId={}, expected={}, actual={})",
+                        partId, expectedCount, actualCount);
             }
 
             return new QuestionGroupData(contextContent, questions);
@@ -510,11 +514,23 @@ public class GeminiService {
                     You are a TOEIC Speaking test creator.
                     Generate one Part 1 "Read a Text Aloud" passage.
 
-                    Requirements:
-                    - 2~3 sentences in length
-                    - Business context: announcement, advertisement, or news bulletin
-                    - Clear language at an intermediate English level
-                    - Suitable for reading aloud (no complex symbols or abbreviations)
+                    Step 1 — Randomly choose ONE text type from this list (choose a DIFFERENT type each call):
+                      1. Store or restaurant announcement (hours, promotion, special event)
+                      2. Airport or transportation notice (gate change, delay, boarding call)
+                      3. Company internal memo (policy update, meeting reminder, holiday notice)
+                      4. Local news bulletin (community event, weather, traffic update)
+                      5. Hotel or resort guest notice (amenities, check-out, special offer)
+                      6. Community or neighborhood notice (facility closure, construction, local event)
+                      7. Product advertisement (new feature, limited-time offer, call to action)
+                      8. Medical or clinic notice (appointment reminder, service change, health tip)
+                      9. Event or conference announcement (registration, venue, schedule)
+                     10. School or university announcement (exam schedule, campus closure, registration)
+
+                    Step 2 — Write the passage:
+                    - 2~3 sentences. Each sentence should vary in structure and length.
+                    - Use natural, flowing English at an intermediate level.
+                    - Do NOT start consecutive sentences with the same word.
+                    - Suitable for reading aloud (no symbols, abbreviations, bullet points, or tables).
 
                     Return JSON: {"content": "the passage text"}
                     """;
@@ -523,12 +539,25 @@ public class GeminiService {
                     You are a TOEIC Speaking test creator.
                     Generate one Part 2 "Describe a Picture" question.
 
-                    Requirements:
-                    - Write a brief instruction asking the test taker to describe a photograph
-                    - The photo should depict a real-life or business scene
-                    - Provide a simple English keyword (1~2 words) to search a relevant photo on Unsplash
+                    Step 1 — Randomly pick ONE scene type from this list (choose a DIFFERENT type each call for variety):
+                      1. Office/workplace — conference room, coworkers at desks, presentation
+                      2. Outdoor market or shopping street — vendors, shoppers, stalls
+                      3. Airport or train station — passengers, luggage, departure board
+                      4. Restaurant or café — dining tables, servers, customers
+                      5. Park or outdoor recreation — joggers, families, picnic
+                      6. Library or classroom — students, bookshelves, studying
+                      7. Construction or factory — workers, machinery, building site
+                      8. Hospital or clinic — waiting room, reception desk, medical staff
+                      9. Retail store — clothing racks, checkout counter, display items
+                     10. Sports or gym — exercise equipment, team sport, training session
 
-                    Return JSON: {"content": "the instruction text", "imageKeyword": "search keyword"}
+                    Step 2 — Write the question and keyword:
+                    - Write a brief instruction telling the test taker to describe the photograph
+                    - Provide a specific 2~3 word English keyword suited to the chosen scene
+                      (e.g., "airport departure lounge", "outdoor farmers market", "office team meeting")
+                      The keyword must be specific enough that an Unsplash search returns a clear, on-topic photo.
+
+                    Return JSON: {"content": "the instruction text", "imageKeyword": "specific 2~3 word keyword"}
                     """;
 
             default -> throw new BusinessException(ErrorCode.INVALID_PART_ID);
@@ -561,18 +590,37 @@ public class GeminiService {
                     You are a TOEIC Speaking test creator.
                     Generate one Part 3 "Respond to Questions" set.
 
-                    Structure:
-                    - contextContent: An introduction sentence telling the test taker to imagine
-                      they are being interviewed for a survey about a specific everyday or
-                      business topic (e.g., travel, shopping, work habits, technology use).
+                    Step 1 — Randomly choose ONE survey topic from this list (choose a DIFFERENT topic each call):
+                      1. Online shopping habits and delivery preferences
+                      2. Travel destinations and vacation planning styles
+                      3. Workplace culture, remote work, and career goals
+                      4. Social media and smartphone usage patterns
+                      5. Health, fitness routines, and diet choices
+                      6. Dining out, food preferences, and cooking habits
+                      7. Entertainment choices: movies, music, books, or games
+                      8. Daily commuting, transportation methods, and traffic
+                      9. Environmental habits: recycling, energy use, sustainability
+                     10. Learning styles, online courses, and self-improvement
+                     11. Home decoration, moving, and living arrangements
+                     12. Personal finance, budgeting, and spending priorities
+
+                    Step 2 — Write the question set:
+                    - contextContent: One sentence telling the test taker to imagine being
+                      interviewed by phone about the chosen topic.
                       Format: "Imagine you are talking on the phone with someone who is
-                      conducting a survey about [topic]."
-                    - questions: Exactly 3 questions in increasing difficulty
-                        questions[0]: Simple preference or factual question (15-second response)
-                        questions[1]: Question about habits or personal experience (15-second response)
-                        questions[2]: Question requiring detailed explanation or comparison
-                                      (30-second response) — include "Please explain." or
-                                      "Please give details." at the end
+                      conducting a survey about [specific topic]."
+                    - questions: Exactly 3 questions in increasing difficulty.
+                      Vary the question openers — do NOT start all three with "How" or "What".
+                        questions[0]: Simple factual or preference question (15-second response).
+                          Use openers like: "Do you prefer...?", "How often do you...?",
+                          "Have you ever...?", "What is your favorite...?"
+                        questions[1]: Habit or personal experience question (15-second response).
+                          Use openers like: "When did you last...?", "How do you usually...?",
+                          "What kind of... do you typically...?"
+                        questions[2]: Explanation or comparison requiring detail (30-second response).
+                          Must end with "Please explain." or "Please give details."
+                          Use openers like: "Why do you...?", "What are the advantages of...?",
+                          "How has [topic] changed...?", "Compare... and explain which you prefer."
 
                     Return JSON:
                     {
@@ -580,7 +628,7 @@ public class GeminiService {
                       "questions": [
                         {"content": "Q1 text"},
                         {"content": "Q2 text"},
-                        {"content": "Q3 text with explanation request"}
+                        {"content": "Q3 text ending with Please explain. or Please give details."}
                       ]
                     }
                     """;
@@ -638,38 +686,48 @@ public class GeminiService {
              *
              * 실제 시험 구조:
              *   응시자에게 사회적/직장 관련 주제나 상황이 제시된다.
-             *   2개의 질문에 각각 의견을 표현한다 (준비 45초, 답변 60초).
-             *   Q1은 주 의견, Q2는 더 심층적인 의견 (이유, 반론, 결론 등).
+             *   1개의 질문에 의견을 표현한다 (준비 45초, 답변 60초).
              *
              * 프롬프트 설계 의도:
-             *   - contextContent: 명확한 관점을 요구하는 상황 설명
-             *   - Q1: "Do you agree or disagree...?" 또는 "What do you think...?"
-             *   - Q2: Q1의 연장선에서 더 구체적인 근거/예시/비교를 요구
+             *   - contextContent: 명확한 관점을 요구하는 상황 설명 (1~2 문장)
+             *   - Q1: 다양한 형식의 의견 표현 질문 (동의/반대, 비교, 선택, 자유 의견)
              */
             case 5 -> """
                     You are a TOEIC Speaking test creator.
-                    Generate one Part 5 "Express an Opinion" set.
+                    Generate one Part 5 "Express an Opinion" question.
 
-                    Structure:
-                    - contextContent: A situation statement about a workplace or social topic
-                      that invites a clear opinion. Should be 1~2 sentences.
-                      Examples of topics: remote work, AI in the workplace, work-life balance,
-                      online vs in-person education, social media's effect on communication.
-                    - questions: Exactly 2 questions
-                        questions[0]: Main opinion question — ask the test taker to agree or
-                                      disagree, or express their view with supporting reasons
-                                      (60-second response). End with "Please give reasons."
-                        questions[1]: A deeper follow-up — ask for specific examples, potential
-                                      drawbacks, future implications, or comparison with
-                                      alternatives (60-second response).
-                                      End with "Please explain in detail."
+                    Step 1 — Randomly choose ONE topic from this list (choose a DIFFERENT topic each call):
+                      1. Working remotely vs. working from the office
+                      2. The impact of artificial intelligence on jobs and the workforce
+                      3. Work-life balance and flexible working hours
+                      4. Online education vs. traditional in-person classroom learning
+                      5. The effects of social media on communication and relationships
+                      6. Corporate environmental responsibility and sustainability practices
+                      7. Public transportation vs. owning a personal vehicle
+                      8. Living in a large city vs. a small town or rural area
+                      9. Working for a large corporation vs. a small startup
+                     10. The importance of cultural and linguistic diversity in the workplace
+                     11. Whether technology makes people more productive or more distracted
+                     12. Taking a gap year before or after university
+
+                    Step 2 — Write the contextContent and question:
+                    - contextContent: 1~2 sentences describing a real-world situation or debate
+                      related to the chosen topic. Make it specific and thought-provoking.
+                    - questions: Exactly 1 question. Rotate the question format each call:
+                        Format A: "Do you agree or disagree that [statement]?
+                                   Give reasons and examples to support your answer."
+                        Format B: "Some people believe [view A], while others think [view B].
+                                   Which view do you agree with, and why?"
+                        Format C: "What is your opinion on [topic]?
+                                   Please give specific reasons and examples."
+                        Format D: "Is it better to [option A] or [option B]?
+                                   Give reasons for your choice."
 
                     Return JSON:
                     {
                       "contextContent": "the situation statement",
                       "questions": [
-                        {"content": "Q1 main opinion question"},
-                        {"content": "Q2 deeper follow-up question"}
+                        {"content": "the opinion question"}
                       ]
                     }
                     """;

@@ -12,7 +12,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 /**
@@ -21,16 +23,16 @@ import java.util.stream.IntStream;
  * ── TOEIC Speaking 시험 구성 ────────────────────────────────────────────────
  *
  *   Part 1  Read a Text Aloud          2문제 (독립 문제, prep=45s, resp=45s)
- *   Part 2  Describe a Picture         1문제 (독립 문제, prep=45s, resp=30s)
+ *   Part 2  Describe a Picture         2문제 (독립 문제, 각각 다른 사진, prep=45s, resp=30s)
  *   Part 3  Respond to Questions       3문제 (그룹, Q1·Q2 resp=15s, Q3 resp=30s)
  *   Part 4  Respond to Questions       3문제 (그룹, Q1·Q2 resp=15s, Q3 resp=30s)
  *           Using Information Provided
- *   Part 5  Express an Opinion         2문제 (그룹, prep=45s, resp=60s)
+ *   Part 5  Express an Opinion         1문제 (그룹, prep=45s, resp=60s)
  *   ─────────────────────────────────  총 11 PracticeSession 생성
  *
  * ── 시험 생애주기 ────────────────────────────────────────────────────────────
  *
- *   1. start()      → ExamSession(IN_PROGRESS) + PracticeSession 11개(PENDING)
+ *   1. start()      → ExamSession(IN_PROGRESS) + PracticeSession 11개(PENDING) 생성
  *   2. 프론트가 각 세션의 음성을 순서대로 제출 (Feedback API)
  *      → 각 PracticeSession: PENDING → PROCESSING → DONE
  *   3. (Feedback API가) 모든 세션 DONE 확인 후 checkAndComplete() 호출
@@ -81,8 +83,8 @@ public class ExamSessionService {
         // ── Part 1: 독립 문제 2개 ──────────────────────────────────────────
         parts.add(buildSinglePartSection((short) 1, 2, user, examSession));
 
-        // ── Part 2: 독립 문제 1개 ──────────────────────────────────────────
-        parts.add(buildSinglePartSection((short) 2, 1, user, examSession));
+        // ── Part 2: 사진 묘사 2개 (각각 다른 사진) ────────────────────────
+        parts.add(buildSinglePartSection((short) 2, 2, user, examSession));
 
         // ── Part 3/4/5: 그룹 문제 ─────────────────────────────────────────
         parts.add(buildGroupPartSection((short) 3, user, examSession));
@@ -95,14 +97,17 @@ public class ExamSessionService {
     // ── 독립 문제(Part 1/2) 파트 섹션 생성 ────────────────────────────────
 
     /**
-     * @param count Part 1: 2, Part 2: 1
+     * @param count Part 1: 2, Part 2: 2
+     * excludeIds로 같은 파트 내 이미 선택된 질문을 제외해 중복 방지.
      */
     private ExamStartResponse.PartSection buildSinglePartSection(
             short partId, int count, User user, ExamSession examSession) {
 
         List<ExamStartResponse.SessionItem> items = new ArrayList<>();
+        Set<Long> usedIds = new HashSet<>();
         for (int i = 0; i < count; i++) {
-            Question question = questionService.generateAndSaveSingleQuestion(partId);
+            Question question = questionService.generateAndSaveSingleQuestion(partId, usedIds);
+            usedIds.add(question.getId());
             PracticeSession session = practiceSessionRepository.save(
                     PracticeSession.builder()
                             .user(user)

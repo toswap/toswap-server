@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -82,16 +83,25 @@ public class QuestionService {
     // 내부 공용 메서드 (PracticeSessionService 등에서 호출)
     // ══════════════════════════════════════════════════════════════════════════
 
+    /** 단일 호출용 편의 메서드 — 제외 ID 없음 */
+    @Transactional
+    public Question generateAndSaveSingleQuestion(short partId) {
+        return generateAndSaveSingleQuestion(partId, Set.of());
+    }
+
     /**
      * Part 1/2: 풀에 문제가 충분하면 랜덤 재사용, 부족하면 Gemini로 신규 생성 후 저장.
+     * excludeIds: 같은 시험/세션 내에서 이미 선택된 questionId — 중복 방지용.
      * 호출 시점의 트랜잭션에 참여한다(PROPAGATION_REQUIRED).
      */
     @Transactional
-    public Question generateAndSaveSingleQuestion(short partId) {
+    public Question generateAndSaveSingleQuestion(short partId, Set<Long> excludeIds) {
         long poolSize = questionRepository.countByPartIdAndQuestionGroupIsNull((short) partId);
         if (poolSize >= POOL_MIN_SIZE && ThreadLocalRandom.current().nextDouble() < POOL_HIT_RATE) {
-            List<Question> candidates = questionRepository.findRandomStandalone(
-                    (short) partId, PageRequest.of(0, 1));
+            List<Question> candidates = excludeIds.isEmpty()
+                    ? questionRepository.findRandomStandalone((short) partId, PageRequest.of(0, 1))
+                    : questionRepository.findRandomStandaloneExcluding(
+                            (short) partId, new ArrayList<>(excludeIds), PageRequest.of(0, 1));
             if (!candidates.isEmpty()) {
                 log.info("문제 풀 재사용 (partId={}, poolSize={})", partId, poolSize);
                 return candidates.get(0);
